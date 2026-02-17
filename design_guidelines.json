@@ -1,0 +1,200 @@
+{
+  "project_name": "Music Genre Exploration and Quiz Bot",
+  "theme_strategy": {
+    "mode": "dark",
+    "theme_name": "Abyssal Tech",
+    "rationale": "A deep, immersive ocean aesthetic that combines the mystery of the deep sea with futuristic tech elements. Uses deep teal-blacks as the void and bio-luminescent cyans/purples for interaction.",
+    "emotional_tone": "Immersive, Rhythmic, Deep, Futuristic",
+    "visual_enhancers": [
+      "Glassmorphism with noise texture (Deep Sea Glass)",
+      "Bio-luminescent glows (box-shadows)",
+      "Floating 3D abstract shapes",
+      "Sound wave visualizations"
+    ]
+  },
+  "typography": {
+    "font_loading_instruction": "Add this import to index.css: @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;500;700&family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;500;700&display=swap');",
+    "headings": {
+      "family": "Space Grotesk, sans-serif",
+      "weights": ["300", "500", "700"],
+      "usage": "All section titles, hero text, and major stats. Use tracking-tight for sizes over 3xl.",
+      "styles": {
+        "h1": "text-5xl md:text-7xl font-bold tracking-tighter leading-none",
+        "h2": "text-3xl md:text-5xl font-medium tracking-tight",
+        "h3": "text-2xl font-medium tracking-tight"
+      }
+    },
+    "body": {
+      "family": "DM Sans, sans-serif",
+      "weights": ["400", "500", "700"],
+      "usage": "General text, chat bubbles, descriptions.",
+      "styles": {
+        "base": "text-base text-slate-300 leading-relaxed",
+        "small": "text-sm text-slate-400"
+      }
+    },
+    "mono": {
+      "family": "JetBrains Mono, monospace",
+      "usage": "Leaderboard stats, timers, music metadata, track times."
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": "#041C1C",
+      "foreground": "#e2e8f0",
+      "card": "rgba(15, 46, 46, 0.6)",
+      "card_foreground": "#f1f5f9",
+      "primary": "#22d3ee",
+      "primary_foreground": "#041C1C",
+      "secondary": "#2dd4bf",
+      "secondary_foreground": "#041C1C",
+      "accent": "#a855f7",
+      "accent_foreground": "#ffffff",
+      "destructive": "#ef4444",
+      "border": "rgba(34, 211, 238, 0.2)",
+      "input": "rgba(15, 46, 46, 0.8)",
+      "ring": "#22d3ee"
+    },
+    "tailwind_config_extension": {
+      "colors": {
+        "deep-ocean": "#041C1C",
+        "biolum-cyan": "#22d3ee",
+        "biolum-purple": "#a855f7",
+        "glass-teal": "rgba(15, 46, 46, 0.6)"
+      },
+      "backgroundImage": {
+        "ocean-gradient": "linear-gradient(to bottom, #041C1C, #021214)",
+        "glow-conic": "conic-gradient(from 180deg at 50% 50%, #2a8af6 0deg, #a855f7 180deg, #2a8af6 360deg)"
+      }
+    },
+    "forbidden_colors": [
+      "#1B93A4 (Generic Teal)",
+      "#3b82f6 (Generic Blue)",
+      "#000000 (Pure Black - always use tinted #041C1C)"
+    ]
+  },
+  "layout_strategy": {
+    "general": {
+      "spacing": "Generous. Use p-8 to p-12 for sections. 2x standard tailwind spacing.",
+      "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+      "border_radius": "rounded-2xl"
+    },
+    "dashboard": {
+      "type": "Bento Grid",
+      "grid_cols": "grid-cols-1 md:grid-cols-4 lg:grid-cols-12",
+      "gap": "gap-6",
+      "card_style": "bg-glass-teal backdrop-blur-md border border-white/10 hover:border-biolum-cyan/50 transition-all duration-300"
+    },
+    "quiz_interface": {
+      "type": "Chat UI",
+      "layout": "Flex column, max-w-3xl mx-auto",
+      "bot_bubble": "bg-white/5 backdrop-blur-sm rounded-2xl rounded-tl-sm p-6 text-slate-200 border border-white/5 self-start max-w-[80%]",
+      "user_bubble": "bg-biolum-cyan text-deep-ocean font-bold rounded-2xl rounded-tr-sm p-4 self-end max-w-[80%] shadow-[0_0_15px_rgba(34,211,238,0.3)]",
+      "input_area": "Fixed bottom, glassmorphism, floating above content."
+    }
+  },
+  "components_library": {
+    "shadcn_ui_modifications": {
+      "Card": "Remove bg-card, use bg-glass-teal/50 backdrop-blur-md border-border/30",
+      "Button": {
+        "default": "bg-biolum-cyan text-deep-ocean font-bold hover:bg-cyan-300 hover:shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all",
+        "outline": "border-biolum-cyan text-biolum-cyan hover:bg-biolum-cyan/10"
+      },
+      "Input": "bg-black/20 border-white/10 focus:border-biolum-cyan focus:ring-1 focus:ring-biolum-cyan placeholder:text-slate-600"
+    },
+    "custom_components": [
+      {
+        "name": "WaveVisualizer",
+        "description": "Animated audio visualizer bars using framer-motion",
+        "path": "/src/components/custom/WaveVisualizer.js"
+      },
+      {
+        "name": "MoodSelector",
+        "description": "Interactive 3D-feel cards for mood selection",
+        "path": "/src/components/custom/MoodSelector.js"
+      }
+    ]
+  },
+  "assets": {
+    "icons": {
+      "library": "lucide-react",
+      "style": "Stroke width 1.5px, crisp edges",
+      "mapping": {
+        "Music": "Music2",
+        "Quiz": "BrainCircuit",
+        "Mood": "Sparkles",
+        "Profile": "UserCircle",
+        "Play": "PlayCircle",
+        "Pause": "PauseCircle"
+      }
+    },
+    "images": [
+      {
+        "category": "hero_bg",
+        "url": "https://images.unsplash.com/photo-1617994452722-4145e196248b?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Abstract blue wave light on black - Main Hero Background",
+        "usage": "Landing page hero section background with overlay"
+      },
+      {
+        "category": "neon_abstract",
+        "url": "https://images.unsplash.com/photo-1768936919089-857e18c38cf5?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Vibrant neon waves",
+        "usage": "Section dividers or mood background"
+      },
+      {
+        "category": "concert",
+        "url": "https://images.unsplash.com/photo-1770737639812-bd3c709da73b?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Concert crowd silhouette",
+        "usage": "Community / Leaderboard background"
+      },
+      {
+        "category": "studio",
+        "url": "https://images.unsplash.com/photo-1758179762756-7ad05acc2e33?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Synthesizer with purple light",
+        "usage": "Artist Guess / Production mode card"
+      },
+      {
+        "category": "creative_mood",
+        "url": "https://images.unsplash.com/photo-1759269834861-db6fddb17db3?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Swirling vibrant colors",
+        "usage": "Creative Mood card background"
+      }
+    ]
+  },
+  "animation_strategy": {
+    "library": "framer-motion",
+    "preset_animations": {
+      "page_transition": {
+        "initial": { "opacity": 0, "y": 20 },
+        "animate": { "opacity": 1, "y": 0 },
+        "exit": { "opacity": 0, "y": -20 },
+        "transition": { "duration": 0.4, "ease": "easeOut" }
+      },
+      "chat_bubble_entry": {
+        "initial": { "opacity": 0, "scale": 0.9, "y": 10 },
+        "animate": { "opacity": 1, "scale": 1, "y": 0 },
+        "transition": { "type": "spring", "stiffness": 300, "damping": 20 }
+      },
+      "hover_card": {
+        "whileHover": { "y": -5, "borderColor": "rgba(34,211,238,0.5)", "boxShadow": "0 10px 30px -10px rgba(34,211,238,0.3)" }
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "1. SETUP: Delete App.css content. Update tailwind.config.js with the colors provided.",
+    "2. THEME: Enforce 'dark' class on the html element by default.",
+    "3. QUIZ: Implement the Chat Interface strictly as defined in layout_strategy. Do not use standard forms.",
+    "4. AUDIO: Create a global 'PlayerContext' to handle Spotify preview URLs so playback persists across navigation.",
+    "5. DASHBOARD: Use the Bento Grid layout. Do not just stack cards vertically.",
+    "6. TESTING: Add data-testid to every interactive element (buttons, inputs, quiz options).",
+    "7. IMAGES: Use the provided Unsplash URLs. Do not leave empty placeholders.",
+    "8. SHADCN: When installing shadcn components, ensure you override the default background colors in your custom CSS or component usage to match the 'Abyssal Tech' theme.",
+    "9. FORBIDDEN: Do not use the color #1B93A4. Do not use generic 'Loading...' text—use music-themed loaders (e.g., 'Tuning instruments...', 'Digging through crates...')."
+  ],
+  "universal_guidelines": {
+    "do_not_use_gradients_as_text_color": true,
+    "avoid_centering_everything": true,
+    "use_layered_shadows": true,
+    "toast_library": "sonner"
+  }
+}
