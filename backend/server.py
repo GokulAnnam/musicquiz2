@@ -20,23 +20,24 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ.get('DB_NAME', 'musicquiz')]
 
 # Config
-SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID')
-SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET')
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
-LLM_API_KEY = EMERGENT_LLM_KEY or GEMINI_API_KEY  # Prefer Emergent key
+SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID', 'dummy_spotify_id')
+SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET', 'dummy_spotify_secret')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', 'dummy_gemini_key')
+LLM_API_KEY = GEMINI_API_KEY
 JWT_SECRET = os.environ.get('JWT_SECRET', 'fallback_secret')
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://vibe-check-quiz.preview.emergentagent.com')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
 # Spotify OAuth
-SPOTIFY_REDIRECT_URI = f"{FRONTEND_URL}/auth/callback"
+#SPOTIFY_REDIRECT_URI = os.environ.get('SPOTIPY_REDIRECT_URI', f"{FRONTEND_URL}/callback")
+SPOTIFY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
 SPOTIFY_SCOPES = "user-read-private user-read-email user-top-read"
 
+print("SPOTIFY REDIRECT URI =", SPOTIFY_REDIRECT_URI)
 sp_oauth = SpotifyOAuth(
     client_id=SPOTIFY_CLIENT_ID,
     client_secret=SPOTIFY_CLIENT_SECRET,
@@ -51,7 +52,7 @@ sp_client = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
 ))
 
 # Gemini LLM
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+import google.generativeai as genai
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -245,11 +246,11 @@ def get_tracks_for_mood(mood: str, limit: int = 20) -> list:
 async def generate_quiz_content(track: dict, mode: str, options: list):
     """Use Gemini to generate quiz question, hint, and fun fact."""
     session_id = f"quiz-{uuid.uuid4().hex[:8]}"
-    chat = LlmChat(
-        api_key=LLM_API_KEY,
-        session_id=session_id,
-        system_message="You are a music quiz master. Generate engaging quiz content. Respond ONLY in valid JSON, no markdown."
-    ).with_model("gemini", "gemini-2.0-flash")
+    genai.configure(api_key=LLM_API_KEY)
+    model = genai.GenerativeModel(
+        model_name="gemini-2.0-flash",
+        system_instruction="You are a music quiz master. Generate engaging quiz content. Respond ONLY in valid JSON, no markdown."
+    )
 
     if mode == "genre":
         prompt = f"""Generate a genre quiz question for "{track['name']}" by {track['artist']}.
@@ -264,9 +265,9 @@ Return JSON: {{"question": "an engaging question about who performs this song", 
 Return JSON: {{"question": "a fun trivia question about this track or genre", "hint": "a helpful hint", "fun_fact": "a fascinating music fact"}}"""
 
     try:
-        response = await chat.send_message(UserMessage(text=prompt))
+        response = await model.generate_content_async(prompt)
         import json
-        cleaned = response.strip()
+        cleaned = response.text.strip()
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
             cleaned = "\n".join(lines[1:])
@@ -283,12 +284,11 @@ Return JSON: {{"question": "a fun trivia question about this track or genre", "h
         return {"question": f"Music trivia: What do you know about \"{track['name']}\"?", "hint": "Listen to the musical elements.", "fun_fact": "Music brings people together!"}
 
 async def generate_answer_response(track: dict, correct: bool, user_answer: str, correct_answer: str):
-    session_id = f"ans-{uuid.uuid4().hex[:8]}"
-    chat = LlmChat(
-        api_key=LLM_API_KEY,
-        session_id=session_id,
-        system_message="You are a fun, encouraging music quiz host. Keep responses to 2 sentences max. Be enthusiastic but concise."
-    ).with_model("gemini", "gemini-2.0-flash")
+    genai.configure(api_key=LLM_API_KEY)
+    model = genai.GenerativeModel(
+        model_name="gemini-2.0-flash",
+        system_instruction="You are a fun, encouraging music quiz host. Keep responses to 2 sentences max. Be enthusiastic but concise."
+    )
 
     if correct:
         prompt = f"The user correctly answered '{correct_answer}' for \"{track['name']}\" by {track['artist']}. Give a brief congrats and one music fact. 2 sentences max."
@@ -296,8 +296,8 @@ async def generate_answer_response(track: dict, correct: bool, user_answer: str,
         prompt = f"The user guessed '{user_answer}' but the answer was '{correct_answer}' for \"{track['name']}\" by {track['artist']}. Encourage them briefly. 2 sentences max."
 
     try:
-        response = await chat.send_message(UserMessage(text=prompt))
-        return response.strip()
+        response = await model.generate_content_async(prompt)
+        return response.text.strip()
     except Exception as e:
         logger.error(f"Gemini answer response error: {e}")
         if correct:

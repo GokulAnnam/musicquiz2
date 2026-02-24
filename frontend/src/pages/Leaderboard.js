@@ -5,7 +5,7 @@ import { Trophy, Medal, Target, Flame } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import axios from 'axios';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api`;
 
 export default function Leaderboard() {
   const { user } = useAuth();
@@ -88,9 +88,8 @@ export default function Leaderboard() {
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.05 }}
                   data-testid={`leaderboard-row-${i}`}
-                  className={`glass-card rounded-xl p-4 flex items-center gap-4 transition-all duration-200 ${
-                    isCurrentUser ? 'border-biolum-cyan/40 bg-biolum-cyan/5' : ''
-                  } ${player.rank <= 3 ? 'border-white/15' : ''}`}
+                  className={`glass-card rounded-xl p-4 flex items-center gap-4 transition-all duration-200 ${isCurrentUser ? 'border-biolum-cyan/40 bg-biolum-cyan/5' : ''
+                    } ${player.rank <= 3 ? 'border-white/15' : ''}`}
                 >
                   {/* Rank */}
                   <div className="w-8 flex items-center justify-center">

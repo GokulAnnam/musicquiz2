@@ -61,7 +61,7 @@ function AppRoutes() {
       {user && <Navbar />}
       <Routes>
         <Route path="/" element={user ? <Navigate to="/hub" replace /> : <LandingPage />} />
-        <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/callback" element={<AuthCallback />} />
         <Route path="/hub" element={<ProtectedRoute><QuizHub /></ProtectedRoute>} />
         <Route path="/quiz/:mode" element={<ProtectedRoute><QuizGame /></ProtectedRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
