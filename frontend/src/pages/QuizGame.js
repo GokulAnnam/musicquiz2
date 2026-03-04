@@ -13,7 +13,7 @@ import AudioPlayer from '@/components/AudioPlayer';
 export default function QuizGame() {
   const { mode } = useParams();
   const navigate = useNavigate();
-  const { authAxios } = useAuth();
+  const { authAxios, user } = useAuth();
   const { playTrack, stopTrack } = usePlayer();
 
   const [phase, setPhase] = useState(mode === 'mood' ? 'mood-select' : 'loading');
@@ -26,6 +26,7 @@ export default function QuizGame() {
   const [answered, setAnswered] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
   const [timedActive, setTimedActive] = useState(false);
+  const [numQuestions, setNumQuestions] = useState(5);
 
   const chatEndRef = useRef(null);
   const timerRef = useRef(null);
@@ -36,12 +37,20 @@ export default function QuizGame() {
     }, 100);
   }, []);
 
+  // Redirect to hub if not authenticated (shouldn't happen when entering via proper flow)
+  useEffect(() => {
+    if (!user) {
+      navigate('/hub');
+    }
+  }, [user, navigate]);
+
   // Start quiz
   const startQuiz = useCallback(async (mood = null) => {
     setPhase('loading');
     try {
       const payload = { mode, difficulty: 'medium' };
       if (mood) payload.mood = mood;
+      if (mode === 'educationalquiz' || mode === 'educational') payload.num_questions = numQuestions;
       const res = await authAxios.post('/quiz/start', payload);
       setSession(res.data);
       setCurrentIndex(0);
@@ -51,10 +60,10 @@ export default function QuizGame() {
       setAnswered(false);
 
       const firstQ = res.data.questions[0];
-      setMessages([{
+      setMessages([{ 
         type: 'bot',
         content: firstQ.question,
-        track: firstQ.track,
+        track: firstQ.track || null,
         options: firstQ.options,
         mode: firstQ.mode
       }]);
@@ -70,7 +79,7 @@ export default function QuizGame() {
       toast.error('Failed to start quiz. Try again.');
       setPhase(mode === 'mood' ? 'mood-select' : 'error');
     }
-  }, [authAxios, mode]);
+  }, [authAxios, mode, numQuestions]);
 
   // Auto-start for non-mood modes
   useEffect(() => {
@@ -121,7 +130,7 @@ export default function QuizGame() {
         answer
       });
 
-      const { is_correct, correct_answer, points, total_score, bot_response, fun_fact, is_last_question, track_info } = res.data;
+      const { is_correct, correct_answer, points, total_score, bot_response, fun_fact, topic, is_last_question, track_info } = res.data;
 
       setScore(total_score);
 
@@ -132,7 +141,8 @@ export default function QuizGame() {
         isCorrect: is_correct,
         correctAnswer: correct_answer,
         funFact: fun_fact,
-        trackInfo: track_info,
+        topic: topic,
+        trackInfo: track_info || null,
         points
       }]);
 
@@ -188,7 +198,29 @@ export default function QuizGame() {
           >
             <ArrowLeft className="w-4 h-4" /> Back to Hub
           </button>
-          <MoodSelector onSelect={handleMoodSelect} />
+          {mode === 'educationalquiz' || mode === 'educational' ? (
+            <div className="glass-card rounded-2xl p-8 max-w-md mx-auto">
+              <h2 className="font-heading text-2xl font-bold text-white mb-6">Select Number of Questions</h2>
+              <div className="space-y-3">
+                {[5, 10, 20].map(num => (
+                  <button
+                    key={num}
+                    onClick={() => { setNumQuestions(num); startQuiz(); }}
+                    className={`w-full py-3 px-4 rounded-xl border transition-all ${
+                      numQuestions === num
+                        ? 'bg-biolum-cyan border-biolum-cyan text-deep-ocean font-bold'
+                        : 'border-white/20 bg-white/5 text-white hover:bg-biolum-cyan/10 hover:border-biolum-cyan'
+                    }`}
+                    data-testid={`questions-${num}-btn`}
+                  >
+                    {num} Questions
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <MoodSelector onSelect={handleMoodSelect} />
+          )}
         </div>
       </div>
     );
@@ -204,7 +236,7 @@ export default function QuizGame() {
               <div key={i} className="w-1.5 bg-biolum-cyan rounded-full wave-bar" style={{ animationDelay: `${i * 0.15}s`, height: '4px' }} />
             ))}
           </div>
-          <p className="text-slate-400 text-sm">Finding the perfect tracks...</p>
+          <p className="text-slate-400 text-sm">Preparing quiz content...</p>
         </div>
       </div>
     );
@@ -215,7 +247,7 @@ export default function QuizGame() {
     return (
       <div className="min-h-screen bg-deep-ocean flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-400 mb-4">Could not load quiz tracks.</p>
+          <p className="text-red-400 mb-4">Could not load quiz content.</p>
           <button
             onClick={() => startQuiz()}
             className="px-6 py-2 bg-biolum-cyan text-deep-ocean font-bold rounded-full"
@@ -319,6 +351,11 @@ export default function QuizGame() {
               <span className="text-xs text-slate-500 font-mono">
                 {currentIndex + 1}/{session?.total_questions}
               </span>
+              {user && (
+                <span className="text-xs text-slate-400 truncate max-w-xs">
+                  {user.display_name}
+                </span>
+              )}
             </div>
           </div>
           <Progress value={progressPercent} className="h-1 bg-white/5" />
@@ -339,79 +376,88 @@ export default function QuizGame() {
               >
                 {msg.type === 'bot' ? (
                   <div className="max-w-[85%] space-y-3">
-                    {/* Bot bubble */}
-                    <div className={`rounded-2xl rounded-tl-sm p-5 border ${
-                      msg.isHint
-                        ? 'bg-yellow-500/10 border-yellow-500/20'
-                        : msg.isCorrect === true
-                        ? 'bg-emerald-500/10 border-emerald-500/20'
-                        : msg.isCorrect === false
-                        ? 'bg-red-500/10 border-red-500/20'
-                        : 'bg-white/5 border-white/5'
-                    }`}>
-                      <p className="text-slate-200 leading-relaxed">{msg.content}</p>
+                      {/* Bot bubble */}
+                      <div className={`rounded-2xl rounded-tl-sm p-5 border ${
+                        msg.isHint
+                          ? 'bg-yellow-500/10 border-yellow-500/20'
+                          : msg.isCorrect === true
+                          ? 'bg-emerald-500/10 border-emerald-500/20'
+                          : msg.isCorrect === false
+                          ? 'bg-red-500/10 border-red-500/20'
+                          : 'bg-white/5 border-white/5'
+                      }`}>
+                        <p className="text-slate-200 leading-relaxed">{msg.content}</p>
 
-                      {msg.isCorrect !== undefined && (
-                        <div className="mt-2 flex items-center gap-2">
-                          <Badge className={msg.isCorrect
-                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                            : 'bg-red-500/20 text-red-400 border-red-500/30'
-                          }>
-                            {msg.isCorrect ? 'Correct!' : 'Incorrect'}
-                          </Badge>
-                          {msg.points > 0 && (
-                            <span className="text-xs text-biolum-cyan font-mono">+{msg.points} pts</span>
+                        {msg.isCorrect !== undefined && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <Badge className={msg.isCorrect
+                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                              : 'bg-red-500/20 text-red-400 border-red-500/30'
+                            }>
+                              {msg.isCorrect ? 'Correct!' : 'Incorrect'}
+                            </Badge>
+                            {msg.points > 0 && (
+                              <span className="text-xs text-biolum-cyan font-mono">+{msg.points} pts</span>
+                            )}
+                          </div>
+                        )}
+
+                        {msg.funFact && (
+                          <p className="mt-3 text-xs text-slate-400 italic border-t border-white/5 pt-3">
+                            {msg.funFact}
+                          </p>
+                        )}
+
+                        {msg.topic && (
+                          <div className="mt-3 p-3 rounded-lg bg-biolum-cyan/10 border border-biolum-cyan/30">
+                            <p className="text-xs text-biolum-cyan font-semibold mb-1">📚 Learn More</p>
+                            <p className="text-sm text-slate-200 leading-relaxed">
+                              {msg.topic}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Audio player for question messages */}
+                      {msg.track && (
+                        <AudioPlayer track={msg.track} />
+                      )}
+
+                      {/* Options for question messages */}
+                      {msg.options && !answered && i === messages.length - 1 && (
+                        <div className="space-y-2 mt-3">
+                          {msg.options.map((opt, oi) => (
+                            <motion.button
+                              key={oi}
+                              whileHover={{ x: 4 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => handleAnswer(opt)}
+                              data-testid={`quiz-option-${oi}`}
+                              className="w-full text-left px-5 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-biolum-cyan/10 hover:border-biolum-cyan/30 text-slate-200 transition-all duration-200 flex items-center justify-between group"
+                            >
+                              <span className="capitalize">{opt}</span>
+                              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-biolum-cyan transition-colors" />
+                            </motion.button>
+                          ))}
+
+                          {/* Hint button */}
+                          {!showHint && (
+                            <button
+                              onClick={handleHint}
+                              className="flex items-center gap-2 text-xs text-slate-500 hover:text-yellow-400 transition-colors mt-2"
+                              data-testid="hint-btn"
+                            >
+                              <Lightbulb className="w-3 h-3" /> Need a hint?
+                            </button>
                           )}
                         </div>
                       )}
-
-                      {msg.funFact && (
-                        <p className="mt-3 text-xs text-slate-400 italic border-t border-white/5 pt-3">
-                          {msg.funFact}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Audio player for question messages */}
-                    {msg.track && (
-                      <AudioPlayer track={msg.track} />
-                    )}
-
-                    {/* Options for question messages */}
-                    {msg.options && !answered && i === messages.length - 1 && (
-                      <div className="space-y-2 mt-3">
-                        {msg.options.map((opt, oi) => (
-                          <motion.button
-                            key={oi}
-                            whileHover={{ x: 4 }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() => handleAnswer(opt)}
-                            data-testid={`quiz-option-${oi}`}
-                            className="w-full text-left px-5 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-biolum-cyan/10 hover:border-biolum-cyan/30 text-slate-200 transition-all duration-200 flex items-center justify-between group"
-                          >
-                            <span className="capitalize">{opt}</span>
-                            <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-biolum-cyan transition-colors" />
-                          </motion.button>
-                        ))}
-
-                        {/* Hint button */}
-                        {!showHint && (
-                          <button
-                            onClick={handleHint}
-                            className="flex items-center gap-2 text-xs text-slate-500 hover:text-yellow-400 transition-colors mt-2"
-                            data-testid="hint-btn"
-                          >
-                            <Lightbulb className="w-3 h-3" /> Need a hint?
-                          </button>
-                        )}
-                      </div>
-                    )}
                   </div>
                 ) : (
-                  <div className="max-w-[80%] bg-biolum-cyan text-deep-ocean font-bold rounded-2xl rounded-tr-sm px-5 py-3 shadow-[0_0_15px_rgba(34,211,238,0.3)]">
-                    <p className="capitalize">{msg.content}</p>
-                  </div>
-                )}
+                    <div className="w-4/5 bg-biolum-cyan text-deep-ocean font-bold rounded-2xl rounded-tr-sm px-5 py-3 shadow-md">
+                      <p className="capitalize">{msg.content}</p>
+                    </div>
+                  )}
               </motion.div>
             ))}
           </AnimatePresence>

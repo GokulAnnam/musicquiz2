@@ -119,6 +119,23 @@ class MusicQuizAPITester:
                 print(f"   ⚠️  No 'leaderboard' key in response")
         return success
 
+    def test_leaderboard_includes_guest(self):
+        """Ensure the most recent guest appears in the leaderboard list"""
+        success, response = self.run_test(
+            "Leaderboard Includes Guest",
+            "GET",
+            "leaderboard",
+            200
+        )
+        if success and 'leaderboard' in response:
+            names = [u.get('display_name') for u in response.get('leaderboard', [])]
+            if self.guest_user_id and 'AutomatedTester' in names:
+                print(f"   ✓ Guest display name present in leaderboard")
+                return True
+            else:
+                print(f"   ⚠️ Guest name not yet in leaderboard entries")
+        return success
+
     def setup_mongodb_connection(self):
         """Setup MongoDB connection for test user creation"""
         try:
@@ -178,16 +195,60 @@ class MusicQuizAPITester:
 
     def cleanup_test_user(self):
         """Clean up test user from database"""
-        if self.db is not None and self.test_user_id:
-            try:
-                self.db.users.delete_one({"id": self.test_user_id})
-                self.db.quiz_sessions.delete_many({"user_id": self.test_user_id})
-                print(f"✓ Cleaned up test user: {self.test_user_id}")
-            except Exception as e:
-                print(f"⚠️  Failed to cleanup test user: {str(e)}")
+        if self.db is not None:
+            # remove both spotify test user and any guest user created
+            if self.test_user_id:
+                try:
+                    self.db.users.delete_one({"id": self.test_user_id})
+                    self.db.quiz_sessions.delete_many({"user_id": self.test_user_id})
+                    print(f"✓ Cleaned up test user: {self.test_user_id}")
+                except Exception as e:
+                    print(f"⚠️  Failed to cleanup test user: {str(e)}")
+            if getattr(self, 'guest_user_id', None):
+                try:
+                    self.db.users.delete_one({"id": self.guest_user_id})
+                    self.db.quiz_sessions.delete_many({"user_id": self.guest_user_id})
+                    print(f"✓ Cleaned up guest user: {self.guest_user_id}")
+                except Exception as e:
+                    print(f"⚠️  Failed to cleanup guest user: {str(e)}")
         
         if self.mongo_client:
             self.mongo_client.close()
+
+    def test_guest_login(self):
+        """Ensure guest login creates a token and user record"""
+        success, response = self.run_test(
+            "Guest Login",
+            "POST",
+            "auth/guest",
+            200,
+            data={"name": "AutomatedTester"}
+        )
+        if success and 'token' in response and 'user' in response:
+            self.token = response['token']
+            self.guest_user_id = response['user']['id']
+            print(f"   ✓ Guest user id: {self.guest_user_id}")
+            return True
+        return success
+
+    def test_auth_me_guest(self):
+        """Verify /auth/me works after guest login"""
+        if not self.token:
+            print("❌ No guest token available")
+            return False
+        success, response = self.run_test(
+            "Auth Me - Guest",
+            "GET",
+            "auth/me",
+            200
+        )
+        if success:
+            if response.get('id') == self.guest_user_id:
+                print(f"   ✓ Auth/me returned guest user data")
+                return True
+            else:
+                print(f"   ⚠️  Unexpected id in guest auth response")
+        return success
 
     def test_protected_endpoint_without_auth(self):
         """Test that protected endpoints return 401 without auth"""
@@ -360,6 +421,9 @@ def main():
         tester.test_health_check,
         tester.test_spotify_login_url,
         tester.test_leaderboard_empty,
+        tester.test_guest_login,
+        tester.test_auth_me_guest,
+        tester.test_leaderboard_includes_guest,
         tester.test_protected_endpoint_without_auth,
     ]
     
@@ -371,6 +435,14 @@ def main():
             print(f"❌ Test failed with exception: {str(e)}")
             tester.tests_run += 1
     
+    # Before creating a dedicated test user, try a quick quiz start with the guest token
+    print(f"\n🔧 Verifying quiz start works for guest user")
+    try:
+        tester.test_quiz_start_genre_mode()
+    except Exception as e:
+        print(f"❌ Guest quiz test failed: {e}")
+        tester.tests_run += 1
+
     # Setup MongoDB and create test user for quiz testing
     print(f"\n🔧 Setting up Quiz Testing (MongoDB + JWT)...")
     if not tester.setup_mongodb_connection():

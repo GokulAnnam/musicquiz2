@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { useAuth } from '@/contexts/AuthContext';
 import { Music2, UserCircle, Zap, Sparkles, Timer, BrainCircuit } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -44,14 +45,31 @@ const MODES = [
     gradient: 'from-orange-500/20 to-orange-500/5',
     badge: 'Speed',
     image: 'https://images.unsplash.com/photo-1770737639812-bd3c709da73b?crop=entropy&cs=srgb&fm=jpg&q=85&w=400'
+  },
+  {
+    id: 'educationalQuiz',
+    title: 'Educational Quiz',
+    description: 'Answer random cultural music questions from our database. No audio, just learning!',
+    icon: BrainCircuit,
+    color: 'biolum-green',
+    gradient: 'from-green-500/20 to-green-500/5',
+    badge: 'Learn',
+    image: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?crop=entropy&cs=srgb&fm=jpg&q=85&w=400'
   }
 ];
 
 export default function QuizHub() {
   const navigate = useNavigate();
+  const { user, loginGuest } = useAuth();
+  const [nameModalOpen, setNameModalOpen] = useState(false);
+  const [pendingMode, setPendingMode] = useState(null);
+  const [playerName, setPlayerName] = useState('');
 
   const handleModeSelect = (modeId) => {
-    navigate(`/quiz/${modeId}`);
+    // always request/confirm player name before starting
+    setPendingMode(modeId);
+    setPlayerName(user?.display_name || '');
+    setNameModalOpen(true);
   };
 
   return (
@@ -75,6 +93,9 @@ export default function QuizHub() {
           <p className="text-slate-400 text-base md:text-lg max-w-xl">
             Pick a mode and start testing your music knowledge. Each mode offers a unique challenge.
           </p>
+          {user && (
+            <p className="text-slate-400 text-sm mt-1">Playing as <span className="font-medium text-white">{user.display_name}</span>.</p>
+          )}
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -128,6 +149,50 @@ export default function QuizHub() {
           ))}
         </div>
       </div>
+
+      {/* Name prompt modal */}
+      {nameModalOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-deep-ocean rounded-xl p-6 w-full max-w-sm">
+            <h2 className="text-white text-xl mb-4">Enter your name</h2>
+            <input
+              type="text"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              className="w-full p-2 rounded border border-white/30 bg-white/5 text-white mb-4"
+              placeholder="Your name"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setNameModalOpen(false)}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!playerName.trim()}
+                onClick={async () => {
+                  const name = playerName.trim();
+                  let success = true;
+                  // if no user or name changed, create/lookup guest record
+                  if (!user || user.display_name !== name || user.guest) {
+                    success = await loginGuest(name);
+                  }
+                  if (success) {
+                    setNameModalOpen(false);
+                    navigate(`/quiz/${pendingMode}`);
+                  } else {
+                    alert('Failed to set player name');
+                  }
+                }}
+                className="px-4 py-2 bg-biolum-cyan text-deep-ocean font-bold rounded disabled:opacity-50"
+              >
+                Play
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

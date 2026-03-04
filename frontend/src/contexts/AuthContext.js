@@ -57,6 +57,20 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const loginGuest = async (name) => {
+    try {
+      const res = await axios.post(`${API}/auth/guest`, { name });
+      const { token: newToken, user: userData } = res.data;
+      localStorage.setItem('quiz_token', newToken);
+      setToken(newToken);
+      setUser(userData);
+      return true;
+    } catch (err) {
+      console.error('Guest login failed:', err);
+      return false;
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('quiz_token');
     setToken(null);
@@ -70,9 +84,9 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      user, token, loading, loginWithSpotify, handleCallback, logout, authAxios, fetchUser
+      user, token, loading, loginWithSpotify, handleCallback, loginGuest, logout, authAxios, fetchUser
     }}>
-      {children}
+    {children}
     </AuthContext.Provider>
   );
 }

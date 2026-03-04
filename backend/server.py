@@ -16,6 +16,11 @@ import random
 import requests
 import asyncio
 
+# custom quiz question data for educational mode
+# `quiz_data.py` sits alongside server.py, so import directly
+import quiz_data
+
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -68,6 +73,7 @@ class QuizStartRequest(BaseModel):
     mode: str
     mood: Optional[str] = None
     difficulty: Optional[str] = "medium"
+    num_questions: Optional[int] = 5
 
 class QuizAnswerRequest(BaseModel):
     session_id: str
@@ -77,6 +83,9 @@ class QuizAnswerRequest(BaseModel):
 class UserProfileUpdate(BaseModel):
     favorite_genres: Optional[List[str]] = None
     difficulty_level: Optional[str] = None
+
+class GuestRequest(BaseModel):
+    name: str
 
 # --- Auth Helpers ---
 def create_jwt_token(user_id: str, spotify_token: str) -> str:
@@ -184,6 +193,17 @@ def fetch_spotify_tracks(search_queries: list, limit_per_query: int = 10) -> lis
             logger.error(f"Spotify search error for '{query}': {e}")
 
     return all_tracks
+
+def get_educational_questions(limit: int = 5) -> list:
+    """Return a random slice of educational quiz questions.
+    Questions are defined in backend/quiz_data.py and already contain
+    'question', 'choices', and 'answer' fields.
+    """
+    all_qs = quiz_data.questions
+    if not all_qs:
+        return []
+    return random.sample(all_qs, min(limit, len(all_qs)))
+
 
 def get_tracks_for_genre_quiz(limit: int = 20) -> list:
     """Get diverse tracks across genres for genre guessing."""
@@ -310,6 +330,44 @@ async def spotify_login():
     auth_url = sp_oauth.get_authorize_url()
     return {"auth_url": auth_url}
 
+@api_router.post("/auth/guest")
+async def guest_login(req: GuestRequest):
+    """Create or return a guest user record and issue a JWT.
+
+    Guests are identified by display name and marked with a `guest` flag
+    in the database. This allows anonymous play without Spotify
+    authentication while still populating the leaderboard.
+    """
+    name = req.name.strip() or "Guest"
+    # look for existing guest with same display name
+    existing = await db.users.find_one({"display_name": name, "guest": True}, {"_id": 0})
+    if existing:
+        user = existing
+        user_id = user["id"]
+    else:
+        user_id = f"guest-{uuid.uuid4().hex[:8]}"
+        user = {
+            "id": user_id,
+            "display_name": name,
+            "email": "",
+            "avatar": None,
+            "favorite_genres": [],
+            "total_score": 0,
+            "total_games": 0,
+            "total_correct": 0,
+            "total_questions": 0,
+            "genre_accuracy": {},
+            "difficulty_level": "medium",
+            "streak": 0,
+            "best_streak": 0,
+            "guest": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "last_login": datetime.now(timezone.utc).isoformat()
+        }
+        await db.users.insert_one(user)
+    token = create_jwt_token(user_id, "")
+    return {"token": token, "user": user}
+
 @api_router.post("/auth/spotify-callback")
 async def spotify_callback(req: SpotifyCallbackRequest):
     try:
@@ -360,14 +418,21 @@ async def get_me(user=Depends(get_current_user)):
 # --- Quiz Routes ---
 @api_router.post("/quiz/start")
 async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
-    mode = req.mode
+    # normalize mode to lowercase for comparisons
+    mode = req.mode.lower() if req.mode else ""
     difficulty = req.difficulty or user.get("difficulty_level", "medium")
     settings = DIFFICULTY_SETTINGS.get(difficulty, DIFFICULTY_SETTINGS["medium"])
 
     logger.info(f"Starting quiz: mode={mode}, mood={req.mood}, difficulty={difficulty}")
 
-    # Fetch tracks based on mode
-    if mode == "mood" and req.mood:
+    # Fetch tracks or questions based on mode
+    questions = []
+    tracks = []
+    if mode in ("educational", "educationalquiz", "education"):
+        # grab a random batch from static quiz dataset with requested num_questions
+        requested_num = req.num_questions or 5
+        questions = get_educational_questions(limit=requested_num)
+    elif mode == "mood" and req.mood:
         tracks = get_tracks_for_mood(req.mood)
     elif mode == "artist":
         tracks = get_tracks_for_artist_quiz()
@@ -378,67 +443,87 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
     else:
         tracks = get_tracks_for_genre_quiz()
 
-    logger.info(f"Fetched {len(tracks)} tracks, {sum(1 for t in tracks if t.get('preview_url'))} with audio previews")
+    # if we're in educational mode we already have questions,
+    # otherwise fall back to the track-based logic below.
+    if mode in ("educational", "educationalquiz", "education"):
+        if not questions:
+            raise HTTPException(status_code=400, detail="No educational questions available.")
+        # questions list already contains the dicts from quiz_data
+        session_questions = []
+        for q in questions:
+            session_questions.append({
+                "question": q["question"],
+                "options": q.get("choices", []),
+                "correct_answer": q.get("answer"),
+                "topic": q.get("topic"),
+                "mode": mode
+            })
+    else:
+        logger.info(f"Fetched {len(tracks)} tracks, {sum(1 for t in tracks if t.get('preview_url'))} with audio previews")
 
-    if len(tracks) < 4:
-        raise HTTPException(status_code=400, detail="Not enough tracks found. Please try again.")
+        if len(tracks) < 4:
+            raise HTTPException(status_code=400, detail="Not enough tracks found. Please try again.")
 
-    # Build questions
-    num_questions = 5 if mode != "timed" else 10
-    selected_tracks = random.sample(tracks, min(num_questions, len(tracks)))
-    questions = []
+        # Build questions for non‑educational modes
+        num_questions = 5 if mode != "timed" else 10
+        selected_tracks = random.sample(tracks, min(num_questions, len(tracks)))
+        session_questions = []
 
-    for track in selected_tracks:
-        if mode == "genre":
-            correct = track["genre"]
-            wrong_pool = [g for g in GENRE_LIST if g.lower() != correct.lower()]
-            wrong = random.sample(wrong_pool, min(settings["options"] - 1, len(wrong_pool)))
-            all_options = [correct] + wrong
-            random.shuffle(all_options)
-        elif mode == "artist":
-            correct = track["artist"]
-            other_artists = list(set([t["artist"] for t in tracks if t["artist"] != correct]))
-            if len(other_artists) < settings["options"] - 1:
-                other_artists += ["Unknown Artist", "Mystery Singer", "Anonymous Band"]
-            wrong = random.sample(other_artists, min(settings["options"] - 1, len(other_artists)))
-            all_options = [correct] + wrong
-            random.shuffle(all_options)
-        else:
-            correct = track["genre"]
-            wrong_pool = [g for g in GENRE_LIST if g.lower() != correct.lower()]
-            wrong = random.sample(wrong_pool, min(settings["options"] - 1, len(wrong_pool)))
-            all_options = [correct] + wrong
-            random.shuffle(all_options)
+        for track in selected_tracks:
+            if mode == "genre":
+                correct = track["genre"]
+                wrong_pool = [g for g in GENRE_LIST if g.lower() != correct.lower()]
+                wrong = random.sample(wrong_pool, min(settings["options"] - 1, len(wrong_pool)))
+                all_options = [correct] + wrong
+                random.shuffle(all_options)
+            elif mode == "artist":
+                correct = track["artist"]
+                other_artists = list(set([t["artist"] for t in tracks if t["artist"] != correct]))
+                if len(other_artists) < settings["options"] - 1:
+                    other_artists += ["Unknown Artist", "Mystery Singer", "Anonymous Band"]
+                wrong = random.sample(other_artists, min(settings["options"] - 1, len(other_artists)))
+                all_options = [correct] + wrong
+                random.shuffle(all_options)
+            else:
+                correct = track["genre"]
+                wrong_pool = [g for g in GENRE_LIST if g.lower() != correct.lower()]
+                wrong = random.sample(wrong_pool, min(settings["options"] - 1, len(wrong_pool)))
+                all_options = [correct] + wrong
+                random.shuffle(all_options)
 
-        # Generate AI content
-        try:
-            llm_data = await generate_quiz_content(track, mode, wrong)
-        except Exception as ex:
-            logger.error(f"LLM generation failed: {ex}")
-            llm_data = {
-                "question": f"What genre is \"{track['name']}\"?" if mode == "genre" else f"Who sings \"{track['name']}\"?",
-                "hint": "Think about the musical style!",
-                "fun_fact": f"This track is by {track['artist']}."
-            }
+            # Generate AI content
+            try:
+                llm_data = await generate_quiz_content(track, mode, wrong)
+            except Exception as ex:
+                logger.error(f"LLM generation failed: {ex}")
+                llm_data = {
+                    "question": f"What genre is \"{track['name']}\"?" if mode == "genre" else f"Who sings \"{track['name']}\"?",
+                    "hint": "Think about the musical style!",
+                    "fun_fact": f"This track is by {track['artist']}."
+                }
 
-        questions.append({
-            "track": {
-                "id": track["id"],
-                "name": track["name"],
-                "artist": track["artist"],
-                "album": track["album"],
-                "album_art": track["album_art"],
-                "preview_url": track.get("preview_url"),
-                "spotify_url": track.get("spotify_url", ""),
-                "genre": track["genre"]
-            },
-            "question": llm_data.get("question", "Guess!"),
-            "hint": llm_data.get("hint", "Listen carefully!"),
-            "fun_fact": llm_data.get("fun_fact", "Music is amazing!"),
-            "options": all_options,
-            "correct_answer": correct,
-            "mode": mode
-        })
+            session_questions.append({
+                "track": {
+                    "id": track["id"],
+                    "name": track["name"],
+                    "artist": track["artist"],
+                    "album": track["album"],
+                    "album_art": track["album_art"],
+                    "preview_url": track.get("preview_url"),
+                    "spotify_url": track.get("spotify_url", ""),
+                    "genre": track["genre"]
+                },
+                "question": llm_data.get("question", "Guess!"),
+                "hint": llm_data.get("hint", "Listen carefully!"),
+                "fun_fact": llm_data.get("fun_fact", "Music is amazing!"),
+                "options": all_options,
+                "correct_answer": correct,
+                "mode": mode
+            })
+    # end building questions
+
+    # rename session_questions to questions variable used later
+    questions = session_questions
 
     session_id = str(uuid.uuid4())
     session = {
@@ -461,19 +546,30 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
     # Return session without correct answers
     safe_questions = []
     for q in questions:
-        safe_questions.append({
-            "track": {
-                "name": q["track"]["name"],
-                "album": q["track"]["album"],
-                "album_art": q["track"]["album_art"],
-                "preview_url": q["track"].get("preview_url"),
-                "spotify_url": q["track"].get("spotify_url", ""),
-            },
-            "question": q["question"],
-            "hint": q["hint"],
-            "options": q["options"],
-            "mode": q["mode"]
-        })
+        if mode in ("educational", "educationalquiz", "education"):
+            # educational items have no track field
+            safe_questions.append({
+                "question": q["question"],
+                "options": q["options"],
+                "mode": q["mode"],
+                # topic/metadata could also be included if desired
+                "topic": q.get("topic")
+            })
+        else:
+            safe_questions.append({
+                "track": {
+                    "name": q["track"]["name"],
+                    "album": q["track"]["album"],
+                    "album_art": q["track"]["album_art"],
+                    "preview_url": q["track"].get("preview_url"),
+                    "spotify_url": q["track"].get("spotify_url", ""),
+                },
+                "question": q["question"],
+                "hint": q["hint"],
+                "options": q["options"],
+                "mode": q["mode"]
+            })
+    
 
     return {
         "session_id": session_id,
@@ -501,7 +597,12 @@ async def answer_question(req: QuizAnswerRequest, user=Depends(get_current_user)
     difficulty = session.get("difficulty", "medium")
     points = DIFFICULTY_SETTINGS.get(difficulty, DIFFICULTY_SETTINGS["medium"])["points"] if is_correct else 0
 
-    bot_response = await generate_answer_response(question["track"], is_correct, req.answer, correct_answer)
+    # educational questions don't have a track object
+    if "track" in question:
+        bot_response = await generate_answer_response(question["track"], is_correct, req.answer, correct_answer)
+    else:
+        # simple static response for educational mode
+        bot_response = "Great job!" if is_correct else "Better luck next time!"
 
     answer_record = {
         "question_index": req.question_index,
@@ -526,19 +627,20 @@ async def answer_question(req: QuizAnswerRequest, user=Depends(get_current_user)
     await db.quiz_sessions.update_one({"id": req.session_id}, update_data)
 
     # Update user stats
-    genre = question["track"].get("genre", "unknown")
     user_update = {"$inc": {"total_questions": 1}}
     if is_correct:
         user_update["$inc"]["total_correct"] = 1
         user_update["$inc"]["total_score"] = points
     await db.users.update_one({"id": user["id"]}, user_update)
 
-    # Update genre accuracy
-    genre_key = f"genre_accuracy.{genre}"
-    inc_update = {f"{genre_key}.total": 1}
-    if is_correct:
-        inc_update[f"{genre_key}.correct"] = 1
-    await db.users.update_one({"id": user["id"]}, {"$inc": inc_update})
+    # If this was a track‑based question also update genre accuracy
+    if "track" in question:
+        genre = question["track"].get("genre", "unknown")
+        genre_key = f"genre_accuracy.{genre}"
+        inc_update = {f"{genre_key}.total": 1}
+        if is_correct:
+            inc_update[f"{genre_key}.correct"] = 1
+        await db.users.update_one({"id": user["id"]}, {"$inc": inc_update})
 
     # Update streak
     if is_correct:
@@ -552,24 +654,27 @@ async def answer_question(req: QuizAnswerRequest, user=Depends(get_current_user)
     if is_last:
         await db.users.update_one({"id": user["id"]}, {"$inc": {"total_games": 1}})
 
-    return {
+    response_payload = {
         "is_correct": is_correct,
         "correct_answer": correct_answer,
         "points": points,
         "total_score": new_score,
         "bot_response": bot_response,
         "fun_fact": question.get("fun_fact", ""),
-        "track_info": {
+        "topic": question.get("topic", ""),
+        "is_last_question": is_last,
+        "question_index": req.question_index
+    }
+    if "track" in question:
+        response_payload["track_info"] = {
             "name": question["track"]["name"],
             "artist": question["track"]["artist"],
             "album": question["track"]["album"],
             "album_art": question["track"]["album_art"],
             "genre": question["track"].get("genre", ""),
             "spotify_url": question["track"].get("spotify_url", "")
-        },
-        "is_last_question": is_last,
-        "question_index": req.question_index
-    }
+        }
+    return response_payload
 
 @api_router.get("/quiz/session/{session_id}")
 async def get_quiz_session(session_id: str, user=Depends(get_current_user)):
