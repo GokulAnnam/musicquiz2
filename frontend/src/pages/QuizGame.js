@@ -11,12 +11,18 @@ import MoodSelector from '@/components/MoodSelector';
 import AudioPlayer from '@/components/AudioPlayer';
 
 export default function QuizGame() {
-  const { mode } = useParams();
+  const { mode: rawMode } = useParams();
+  // normalize mode to lowercase for consistent checks
+  const mode = rawMode?.toLowerCase() || 'genre';
   const navigate = useNavigate();
   const { authAxios, user } = useAuth();
   const { playTrack, stopTrack } = usePlayer();
 
-  const [phase, setPhase] = useState(mode === 'mood' ? 'mood-select' : 'loading');
+  // modes requiring user options before starting quiz
+  const initialPhase = ['mood', 'educationalquiz', 'educational'].includes(mode)
+    ? 'options'
+    : 'loading';
+  const [phase, setPhase] = useState(initialPhase);
   const [selectedMood, setSelectedMood] = useState(null);
   const [session, setSession] = useState(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -27,6 +33,7 @@ export default function QuizGame() {
   const [timeLeft, setTimeLeft] = useState(60);
   const [timedActive, setTimedActive] = useState(false);
   const [numQuestions, setNumQuestions] = useState(5);
+  const [educationalLevel, setEducationalLevel] = useState('easy');
 
   const chatEndRef = useRef(null);
   const timerRef = useRef(null);
@@ -45,12 +52,20 @@ export default function QuizGame() {
   }, [user, navigate]);
 
   // Start quiz
-  const startQuiz = useCallback(async (mood = null) => {
+  // Accept optional parameters to avoid async state closure issues
+  const startQuiz = useCallback(async (mood = null, numQs = null, eduLvl = null) => {
     setPhase('loading');
     try {
+      // Use passed values or fall back to state
+      const numQuestionsToUse = numQs !== null ? numQs : numQuestions;
+      const eduLevelToUse = eduLvl !== null ? eduLvl : educationalLevel;
+
       const payload = { mode, difficulty: 'medium' };
       if (mood) payload.mood = mood;
-      if (mode === 'educationalquiz' || mode === 'educational') payload.num_questions = numQuestions;
+      if (mode === 'educationalquiz' || mode === 'educational') {
+        payload.num_questions = numQuestionsToUse;
+        payload.edu_level = eduLevelToUse;
+      }
       const res = await authAxios.post('/quiz/start', payload);
       setSession(res.data);
       setCurrentIndex(0);
@@ -59,14 +74,18 @@ export default function QuizGame() {
       setShowHint(false);
       setAnswered(false);
 
-      const firstQ = res.data.questions[0];
-      setMessages([{ 
-        type: 'bot',
-        content: firstQ.question,
-        track: firstQ.track || null,
-        options: firstQ.options,
-        mode: firstQ.mode
-      }]);
+      const questionsData = res.data.questions;
+      if (questionsData && questionsData.length > 0) {
+        const firstQ = questionsData[0];
+        setMessages([{ 
+          type: 'bot',
+          content: firstQ.question,
+          track: firstQ.track || null,
+          options: firstQ.options,
+          mode: firstQ.mode,
+          level: firstQ.level || null
+        }]);
+      }
 
       setPhase('playing');
 
@@ -77,13 +96,15 @@ export default function QuizGame() {
     } catch (err) {
       console.error('Failed to start quiz:', err);
       toast.error('Failed to start quiz. Try again.');
-      setPhase(mode === 'mood' ? 'mood-select' : 'error');
+      const needsOptions = ['mood', 'educationalquiz', 'educational'].includes(mode);
+      setPhase(needsOptions ? 'options' : 'error');
     }
-  }, [authAxios, mode, numQuestions]);
+  }, [authAxios, mode]);
 
   // Auto-start for non-mood modes
   useEffect(() => {
-    if (mode !== 'mood') {
+    // auto-start unless we're in a mode that needs options selected first
+    if (!['mood', 'educationalquiz', 'educational'].includes(mode)) {
       startQuiz();
     }
   }, [mode, startQuiz]);
@@ -163,7 +184,8 @@ export default function QuizGame() {
               content: nextQ.question,
               track: nextQ.track,
               options: nextQ.options,
-              mode: nextQ.mode
+              mode: nextQ.mode,
+              level: nextQ.level || null
             }]);
           }
         }, 2500);
@@ -186,8 +208,8 @@ export default function QuizGame() {
     }]);
   };
 
-  // Mood select phase
-  if (phase === 'mood-select') {
+  // Options selection phase (mood or educational settings)
+  if (phase === 'options') {
     return (
       <div className="min-h-screen bg-deep-ocean pt-20 pb-12 px-4">
         <div className="max-w-3xl mx-auto">
@@ -199,23 +221,54 @@ export default function QuizGame() {
             <ArrowLeft className="w-4 h-4" /> Back to Hub
           </button>
           {mode === 'educationalquiz' || mode === 'educational' ? (
-            <div className="glass-card rounded-2xl p-8 max-w-md mx-auto">
-              <h2 className="font-heading text-2xl font-bold text-white mb-6">Select Number of Questions</h2>
-              <div className="space-y-3">
-                {[5, 10, 20].map(num => (
-                  <button
-                    key={num}
-                    onClick={() => { setNumQuestions(num); startQuiz(); }}
-                    className={`w-full py-3 px-4 rounded-xl border transition-all ${
-                      numQuestions === num
-                        ? 'bg-biolum-cyan border-biolum-cyan text-deep-ocean font-bold'
-                        : 'border-white/20 bg-white/5 text-white hover:bg-biolum-cyan/10 hover:border-biolum-cyan'
-                    }`}
-                    data-testid={`questions-${num}-btn`}
-                  >
-                    {num} Questions
-                  </button>
-                ))}
+            <div className="glass-card rounded-2xl p-8 max-w-md mx-auto space-y-6">
+              <div>
+                <h2 className="font-heading text-2xl font-bold text-white mb-4">Select Level</h2>
+                <div className="flex flex-wrap gap-2">
+                  {['easy', 'moderate', 'difficult', 'hybrid'].map(lvl => (
+                    <button
+                      key={lvl}
+                      onClick={() => setEducationalLevel(lvl)}
+                      className={`py-2 px-4 rounded-xl border transition-all ${
+                        educationalLevel === lvl
+                          ? 'bg-biolum-cyan border-biolum-cyan text-deep-ocean font-bold'
+                          : 'border-white/20 bg-white/5 text-white hover:bg-biolum-cyan/10 hover:border-biolum-cyan'
+                      }`}
+                      data-testid={`level-${lvl}-btn`}
+                    >
+                      {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-sm text-slate-400 mt-2">
+                  {educationalLevel === 'hybrid'
+                    ? 'Easy questions = 10 pts, Moderate = 15 pts, Difficult = 20 pts'
+                    : educationalLevel === 'easy'
+                    ? 'Each correct answer gives 10 points.'
+                    : educationalLevel === 'moderate'
+                    ? 'Each correct answer gives 15 points.'
+                    : 'Each correct answer gives 20 points.'}
+                </p>
+              </div>
+
+              <div>
+                <h2 className="font-heading text-2xl font-bold text-white mb-6">Select Number of Questions</h2>
+                <div className="space-y-3">
+                  {[5, 10, 20].map(num => (
+                    <button
+                      key={num}
+                      onClick={() => startQuiz(null, num, educationalLevel)}
+                      className={`w-full py-3 px-4 rounded-xl border transition-all ${
+                        numQuestions === num
+                          ? 'bg-biolum-cyan border-biolum-cyan text-deep-ocean font-bold'
+                          : 'border-white/20 bg-white/5 text-white hover:bg-biolum-cyan/10 hover:border-biolum-cyan'
+                      }`}
+                      data-testid={`questions-${num}-btn`}
+                    >
+                      {num} Questions
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           ) : (
@@ -293,8 +346,9 @@ export default function QuizGame() {
             <div className="flex flex-col gap-3">
               <button
                 onClick={() => {
-                  setPhase(mode === 'mood' ? 'mood-select' : 'loading');
-                  if (mode !== 'mood') startQuiz();
+                  const needsOptions = ['mood', 'educationalquiz', 'educational'].includes(mode);
+                  setPhase(needsOptions ? 'options' : 'loading');
+                  if (!needsOptions) startQuiz();
                 }}
                 className="px-6 py-3 bg-biolum-cyan text-deep-ocean font-heading font-bold rounded-full hover:shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all"
                 data-testid="play-again-btn"
@@ -387,6 +441,11 @@ export default function QuizGame() {
                           : 'bg-white/5 border-white/5'
                       }`}>
                         <p className="text-slate-200 leading-relaxed">{msg.content}</p>
+                        {msg.level && (
+                          <Badge className="ml-2 capitalize text-xs bg-white/10 text-white">
+                            {msg.level}
+                          </Badge>
+                        )}
 
                         {msg.isCorrect !== undefined && (
                           <div className="mt-2 flex items-center gap-2">

@@ -72,8 +72,12 @@ class SpotifyCallbackRequest(BaseModel):
 class QuizStartRequest(BaseModel):
     mode: str
     mood: Optional[str] = None
+    # for most modes this is the normal difficulty setting (easy/medium/hard)
     difficulty: Optional[str] = "medium"
+    # number of questions applies to educational and timed modes
     num_questions: Optional[int] = 5
+    # educational quiz level selection: easy / moderate / difficult / hybrid
+    edu_level: Optional[str] = None
 
 class QuizAnswerRequest(BaseModel):
     session_id: str
@@ -194,15 +198,26 @@ def fetch_spotify_tracks(search_queries: list, limit_per_query: int = 10) -> lis
 
     return all_tracks
 
-def get_educational_questions(limit: int = 5) -> list:
+def get_educational_questions(limit: int = 5, level: str = "hybrid") -> list:
     """Return a random slice of educational quiz questions.
     Questions are defined in backend/quiz_data.py and already contain
-    'question', 'choices', and 'answer' fields.
+    'question', 'choices', 'answer' and (new) 'level' fields.
+
+    The `level` argument allows the caller to restrict questions to a
+    particular difficulty (easy/moderate/difficult) or request a
+    'hybrid' mix (default).
     """
     all_qs = quiz_data.questions
     if not all_qs:
         return []
-    return random.sample(all_qs, min(limit, len(all_qs)))
+    if level in ("easy", "moderate", "difficult"):
+        filtered = [q for q in all_qs if q.get("level") == level]
+    else:
+        # hybrid or unknown value -> include everything
+        filtered = all_qs
+    if not filtered:
+        return []
+    return random.sample(filtered, min(limit, len(filtered)))
 
 
 def get_tracks_for_genre_quiz(limit: int = 20) -> list:
@@ -423,7 +438,12 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
     difficulty = req.difficulty or user.get("difficulty_level", "medium")
     settings = DIFFICULTY_SETTINGS.get(difficulty, DIFFICULTY_SETTINGS["medium"])
 
-    logger.info(f"Starting quiz: mode={mode}, mood={req.mood}, difficulty={difficulty}")
+    # determine educational level selection (if any)
+    edu_level = (req.edu_level or "hybrid").lower()
+    if edu_level not in ("easy", "moderate", "difficult", "hybrid"):
+        edu_level = "hybrid"
+
+    logger.info(f"Starting quiz: mode={mode}, mood={req.mood}, difficulty={difficulty}, edu_level={edu_level}")
 
     # Fetch tracks or questions based on mode
     questions = []
@@ -431,7 +451,7 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
     if mode in ("educational", "educationalquiz", "education"):
         # grab a random batch from static quiz dataset with requested num_questions
         requested_num = req.num_questions or 5
-        questions = get_educational_questions(limit=requested_num)
+        questions = get_educational_questions(limit=requested_num, level=edu_level)
     elif mode == "mood" and req.mood:
         tracks = get_tracks_for_mood(req.mood)
     elif mode == "artist":
@@ -456,7 +476,9 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
                 "options": q.get("choices", []),
                 "correct_answer": q.get("answer"),
                 "topic": q.get("topic"),
-                "mode": mode
+                "mode": mode,
+                # keep the level so that scoring logic knows which value to use
+                "level": q.get("level", "easy")
             })
     else:
         logger.info(f"Fetched {len(tracks)} tracks, {sum(1 for t in tracks if t.get('preview_url'))} with audio previews")
@@ -537,6 +559,8 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
         "score": 0,
         "total_questions": len(questions),
         "current_index": 0,
+        # store educational level for scoring later
+        "edu_level": edu_level,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "completed": False,
         "time_limit": 60 if mode == "timed" else None
@@ -553,7 +577,9 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
                 "options": q["options"],
                 "mode": q["mode"],
                 # topic/metadata could also be included if desired
-                "topic": q.get("topic")
+                "topic": q.get("topic"),
+                # include level so client can display/hint if necessary
+                "level": q.get("level")
             })
         else:
             safe_questions.append({
@@ -571,6 +597,20 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
             })
     
 
+    # points_per_correct is mostly informational for the frontend; in
+    # educational mode the value may vary by level or per-question.
+    points_info = settings["points"]
+    if mode in ("educational", "educationalquiz", "education"):
+        if edu_level == "easy":
+            points_info = 10
+        elif edu_level == "moderate":
+            points_info = 15
+        elif edu_level == "difficult":
+            points_info = 20
+        else:
+            # hybrid or unknown: client should not rely on this value
+            points_info = None
+
     return {
         "session_id": session_id,
         "questions": safe_questions,
@@ -578,7 +618,7 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
         "difficulty": difficulty,
         "mode": mode,
         "time_limit": session["time_limit"],
-        "points_per_correct": settings["points"]
+        "points_per_correct": points_info
     }
 
 @api_router.post("/quiz/answer")
@@ -594,8 +634,29 @@ async def answer_question(req: QuizAnswerRequest, user=Depends(get_current_user)
     question = session["questions"][req.question_index]
     correct_answer = question["correct_answer"]
     is_correct = req.answer.lower().strip() == correct_answer.lower().strip()
-    difficulty = session.get("difficulty", "medium")
-    points = DIFFICULTY_SETTINGS.get(difficulty, DIFFICULTY_SETTINGS["medium"])["points"] if is_correct else 0
+
+    # calculate points depending on mode/educational settings
+    points = 0
+    if session.get("mode") in ("educational", "educationalquiz", "education"):
+        # educational quiz scoring depends on the selected level and the
+        # individual question's level when in hybrid mode.
+        if is_correct:
+            sel = session.get("edu_level", "hybrid")
+            if sel == "easy":
+                points = 10
+            elif sel == "moderate":
+                points = 15
+            elif sel == "difficult":
+                points = 20
+            else:  # hybrid
+                qlevel = question.get("level", "easy")
+                mapping = {"easy": 10, "moderate": 15, "difficult": 20}
+                points = mapping.get(qlevel, 10)
+        else:
+            points = 0
+    else:
+        difficulty = session.get("difficulty", "medium")
+        points = DIFFICULTY_SETTINGS.get(difficulty, DIFFICULTY_SETTINGS["medium"])["points"] if is_correct else 0
 
     # educational questions don't have a track object
     if "track" in question:

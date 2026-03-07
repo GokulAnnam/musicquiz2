@@ -298,6 +298,31 @@ class MusicQuizAPITester:
                         track = first_q.get('track', {})
                         if track.get('name') and track.get('album'):
                             print(f"   ✓ Track info looks valid: {track['name'][:30]}...")
+
+    def test_quiz_start_educational_levels(self):
+        """Verify educational quiz start returns correct points information"""
+        if not self.token:
+            print("❌ No auth token available for quiz testing")
+            return False
+
+        for lvl, expected in [("easy", 10), ("moderate", 15), ("difficult", 20), ("hybrid", None)]:
+            success, response = self.run_test(
+                f"Quiz Start - Educational ({lvl})",
+                "POST",
+                "quiz/start",
+                200,
+                data={"mode": "educationalquiz", "num_questions": 3, "edu_level": lvl}
+            )
+            if not success:
+                print(f"   ⚠️  start failed for level {lvl}")
+                continue
+            pts = response.get("points_per_correct")
+            if pts == expected:
+                print(f"   ✓ level {lvl} returned points_per_correct={pts}")
+            else:
+                print(f"   ⚠️  level {lvl} returned {pts}, expected {expected}")
+        return True
+
                             
                             # Check if preview_url is available (Deezer integration)
                             if track.get('preview_url'):
