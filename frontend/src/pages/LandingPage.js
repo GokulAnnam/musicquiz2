@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Music2, Headphones, Disc3 } from 'lucide-react';
+import { Music2, Headphones, Disc3, BrainCircuit } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function LandingPage() {
@@ -81,12 +81,13 @@ export default function LandingPage() {
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.4 }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-16 max-w-4xl w-full px-4"
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-16 max-w-6xl w-full px-4"
         >
           {[
             { title: 'Genre Guess', desc: 'Identify genres from song previews', icon: Music2 },
             { title: 'Artist Guess', desc: 'Name the artist behind the track', icon: Headphones },
             { title: 'Mood Quiz', desc: 'Match songs to your current vibe', icon: Disc3 },
+            { title: 'Educational Quiz', desc: 'Answer random cultural music questions from our database', icon: BrainCircuit },
           ].map((f, i) => (
             <div
               key={f.title}

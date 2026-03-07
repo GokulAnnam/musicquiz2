@@ -47,7 +47,9 @@ sp_oauth = SpotifyOAuth(
     client_id=SPOTIFY_CLIENT_ID,
     client_secret=SPOTIFY_CLIENT_SECRET,
     redirect_uri=SPOTIFY_REDIRECT_URI,
-    scope=SPOTIFY_SCOPES
+    scope=SPOTIFY_SCOPES,
+    show_dialog=True,  # Forces the login window to appear even if authorized previously
+    cache_path=None    # Prevent caching of tokens on disk
 )
 
 # Spotify client credentials for general API access
