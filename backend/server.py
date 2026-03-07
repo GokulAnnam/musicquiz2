@@ -147,23 +147,24 @@ DIFFICULTY_SETTINGS = {
 }
 
 # --- Deezer Preview Helper ---
-def get_deezer_preview(track_name: str, artist_name: str) -> Optional[str]:
+async def get_deezer_preview(track_name: str, artist_name: str) -> Optional[str]:
     """Search Deezer for a matching track and return its 30-sec preview URL."""
     try:
         query = f"{track_name} {artist_name}"
-        r = requests.get("https://api.deezer.com/search", params={"q": query, "limit": 3}, timeout=5)
-        if r.status_code == 200:
-            data = r.json()
-            for item in data.get("data", []):
-                preview = item.get("preview")
-                if preview:
-                    return preview
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.deezer.com/search", params={"q": query, "limit": 3}, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    for item in data.get("data", []):
+                        preview = item.get("preview")
+                        if preview:
+                            return preview
     except Exception as e:
         logger.warning(f"Deezer preview lookup failed for {track_name}: {e}")
     return None
 
 # --- Spotify Track Fetching ---
-def fetch_spotify_tracks(search_queries: list, limit_per_query: int = 10) -> list:
+async def fetch_spotify_tracks(search_queries: list, limit_per_query: int = 10) -> list:
     """Fetch tracks from Spotify and enrich with Deezer previews."""
     all_tracks = []
     seen_ids = set()
@@ -180,7 +181,7 @@ def fetch_spotify_tracks(search_queries: list, limit_per_query: int = 10) -> lis
                 album_art = track["album"]["images"][0]["url"] if track["album"]["images"] else None
 
                 # Get Deezer preview
-                preview_url = get_deezer_preview(track["name"], track["artists"][0]["name"])
+                preview_url = await get_deezer_preview(track["name"], track["artists"][0]["name"])
 
                 all_tracks.append({
                     "id": track["id"],
@@ -220,7 +221,7 @@ def get_educational_questions(limit: int = 5, level: str = "hybrid") -> list:
     return random.sample(filtered, min(limit, len(filtered)))
 
 
-def get_tracks_for_genre_quiz(limit: int = 20) -> list:
+async def get_tracks_for_genre_quiz(limit: int = 10) -> list:
     """Get diverse tracks across genres for genre guessing."""
     genre_queries = [
         ("pop", ["top pop hits 2024", "pop classics"]),
@@ -242,7 +243,7 @@ def get_tracks_for_genre_quiz(limit: int = 20) -> list:
 
     for genre_name, queries in selected_genres:
         query = random.choice(queries)
-        tracks = fetch_spotify_tracks([query], limit_per_query=6)
+        tracks = await fetch_spotify_tracks([query], limit_per_query=6)
         for t in tracks:
             t["genre"] = genre_name
         all_tracks.extend(tracks)
@@ -250,7 +251,7 @@ def get_tracks_for_genre_quiz(limit: int = 20) -> list:
     random.shuffle(all_tracks)
     return all_tracks[:limit]
 
-def get_tracks_for_artist_quiz(limit: int = 20) -> list:
+async def get_tracks_for_artist_quiz(limit: int = 10) -> list:
     """Get tracks from well-known artists for artist guessing."""
     artist_queries = [
         "Taylor Swift", "Drake", "The Weeknd", "Billie Eilish",
@@ -260,17 +261,17 @@ def get_tracks_for_artist_quiz(limit: int = 20) -> list:
         "Beyonce", "Travis Scott", "Bad Bunny", "Harry Styles"
     ]
     selected = random.sample(artist_queries, min(8, len(artist_queries)))
-    tracks = fetch_spotify_tracks(selected, limit_per_query=3)
+    tracks = await fetch_spotify_tracks(selected, limit_per_query=3)
     random.shuffle(tracks)
 
     for t in tracks:
         t["genre"] = "mixed"
     return tracks[:limit]
 
-def get_tracks_for_mood(mood: str, limit: int = 20) -> list:
+async def get_tracks_for_mood(mood: str, limit: int = 10) -> list:
     """Get mood-appropriate tracks."""
     queries = MOOD_SEARCH_TERMS.get(mood, ["popular music"])
-    tracks = fetch_spotify_tracks(queries, limit_per_query=8)
+    tracks = await fetch_spotify_tracks(queries, limit_per_query=8)
     genres = MOOD_GENRE_MAP.get(mood, ["pop"])
     for t in tracks:
         t["genre"] = random.choice(genres)
@@ -453,15 +454,15 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
         requested_num = req.num_questions or 5
         questions = get_educational_questions(limit=requested_num, level=edu_level)
     elif mode == "mood" and req.mood:
-        tracks = get_tracks_for_mood(req.mood)
+        tracks = await get_tracks_for_mood(req.mood)
     elif mode == "artist":
-        tracks = get_tracks_for_artist_quiz()
+        tracks = await get_tracks_for_artist_quiz()
     elif mode == "genre":
-        tracks = get_tracks_for_genre_quiz()
+        tracks = await get_tracks_for_genre_quiz()
     elif mode == "timed":
-        tracks = get_tracks_for_genre_quiz(limit=25)
+        tracks = await get_tracks_for_genre_quiz(limit=15)
     else:
-        tracks = get_tracks_for_genre_quiz()
+        tracks = await get_tracks_for_genre_quiz()
 
     # if we're in educational mode we already have questions,
     # otherwise fall back to the track-based logic below.
@@ -491,6 +492,9 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
         selected_tracks = random.sample(tracks, min(num_questions, len(tracks)))
         session_questions = []
 
+        # Prepare data for parallel LLM calls
+        llm_tasks = []
+        track_options = []
         for track in selected_tracks:
             if mode == "genre":
                 correct = track["genre"]
@@ -513,11 +517,16 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
                 all_options = [correct] + wrong
                 random.shuffle(all_options)
 
-            # Generate AI content
-            try:
-                llm_data = await generate_quiz_content(track, mode, wrong)
-            except Exception as ex:
-                logger.error(f"LLM generation failed: {ex}")
+            track_options.append((track, all_options, correct))
+            llm_tasks.append(generate_quiz_content(track, mode, wrong))
+
+        # Execute LLM calls in parallel
+        llm_results = await asyncio.gather(*llm_tasks, return_exceptions=True)
+
+        for i, (track, all_options, correct) in enumerate(track_options):
+            llm_data = llm_results[i]
+            if isinstance(llm_data, Exception):
+                logger.error(f"LLM generation failed: {llm_data}")
                 llm_data = {
                     "question": f"What genre is \"{track['name']}\"?" if mode == "genre" else f"Who sings \"{track['name']}\"?",
                     "hint": "Think about the musical style!",
