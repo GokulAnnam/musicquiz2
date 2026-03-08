@@ -25,8 +25,22 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
-mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+'''mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ.get('DB_NAME', 'musicquiz')]'''
+#mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+mongo_url = os.environ.get("MONGO_URL") or "mongodb://localhost:27017"
+if "mongodb+srv" in mongo_url:
+    # Cloud (MongoDB Atlas / Render)
+    client = AsyncIOMotorClient(
+        mongo_url,
+        tls=True,
+        tlsAllowInvalidCertificates=True
+    )
+else:
+    # Local MongoDB
+    client = AsyncIOMotorClient(mongo_url)
+
 db = client[os.environ.get('DB_NAME', 'musicquiz')]
 
 # Config
