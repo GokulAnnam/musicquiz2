@@ -6,7 +6,7 @@ const AuthContext = createContext(null);
 //const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api`;
 const API =
   process.env.NODE_ENV === "production"
-    ? "/api"
+    ? "https://musicquiz-backend-q37u.onrender.com/api"
     : "http://localhost:8000/api";
 
 export function AuthProvider({ children }) {
