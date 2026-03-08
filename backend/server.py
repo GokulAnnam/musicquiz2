@@ -38,8 +38,8 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'fallback_secret')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
 # Spotify OAuth
-#SPOTIFY_REDIRECT_URI = os.environ.get('SPOTIPY_REDIRECT_URI', f"{FRONTEND_URL}/callback")
-SPOTIFY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
+SPOTIFY_REDIRECT_URI = os.environ.get('SPOTIPY_REDIRECT_URI', f"{FRONTEND_URL}/callback")
+#SPOTIFY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
 SPOTIFY_SCOPES = "user-read-private user-read-email user-top-read"
 
 print("SPOTIFY REDIRECT URI =", SPOTIFY_REDIRECT_URI)
@@ -47,7 +47,9 @@ sp_oauth = SpotifyOAuth(
     client_id=SPOTIFY_CLIENT_ID,
     client_secret=SPOTIFY_CLIENT_SECRET,
     redirect_uri=SPOTIFY_REDIRECT_URI,
-    scope=SPOTIFY_SCOPES
+    scope=SPOTIFY_SCOPES,
+    show_dialog=True,  # Forces the login window to appear even if authorized previously
+    cache_path=None    # Prevent caching of tokens on disk
 )
 
 # Spotify client credentials for general API access

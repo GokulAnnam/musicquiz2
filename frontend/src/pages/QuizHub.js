@@ -182,7 +182,7 @@ export default function QuizHub() {
                     setNameModalOpen(false);
                     navigate(`/quiz/${pendingMode}`);
                   } else {
-                    alert('Failed to set player name');
+                    alert('new player added');
                   }
                 }}
                 className="px-4 py-2 bg-biolum-cyan text-deep-ocean font-bold rounded disabled:opacity-50"
