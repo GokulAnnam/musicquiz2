@@ -324,11 +324,7 @@ class MusicQuizAPITester:
         return True
 
                             
-                            # Check if preview_url is available (Deezer integration)
-                            if track.get('preview_url'):
-                                print(f"   ✓ Audio preview available via Deezer")
-                            else:
-                                print(f"   ⚠️  No audio preview available")
+
                                 
                         # Check if question looks AI-generated (not just generic)
                         question_text = first_q.get('question', '')
