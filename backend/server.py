@@ -389,9 +389,13 @@ async def guest_login(req: GuestRequest):
 @api_router.post("/auth/spotify-callback")
 async def spotify_callback(req: SpotifyCallbackRequest):
     try:
-        token_info = sp_oauth.get_access_token(req.code, as_dict=True)
-        sp_user = spotipy.Spotify(auth=token_info["access_token"])
+        #token_info = sp_oauth.get_access_token(req.code, as_dict=True)
+        token_info = sp_oauth.get_access_token(req.code)
+        access_token = token_info["access_token"]
+        sp_user = spotipy.Spotify(auth=access_token)
         profile = sp_user.me()
+        #sp_user = spotipy.Spotify(auth=token_info["access_token"])
+        #profile = sp_user.me()
 
         user_id = profile["id"]
         display_name = profile.get("display_name", user_id)
