@@ -27,7 +27,7 @@ class MusicQuizAPITester:
         self.tests_run += 1
         print(f"\n🔍 Testing {name}...")
         print(f"   URL: {url}")
-        
+
         try:
             if method == 'GET':
                 response = requests.get(url, headers=test_headers, timeout=30)
@@ -36,7 +36,7 @@ class MusicQuizAPITester:
 
             print(f"   Status: {response.status_code}")
             success = response.status_code == expected_status
-            
+
             if success:
                 self.tests_passed += 1
                 print(f"✅ PASSED - Expected {expected_status}, got {response.status_code}")
@@ -151,7 +151,7 @@ class MusicQuizAPITester:
         """Create a test user in MongoDB and generate JWT token"""
         if self.db is None:
             return False
-            
+
         try:
             # Create test user in MongoDB
             test_user = {
@@ -171,10 +171,10 @@ class MusicQuizAPITester:
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "last_login": datetime.now(timezone.utc).isoformat()
             }
-            
+
             # Insert user (or update if exists)
             self.db.users.replace_one({"id": self.test_user_id}, test_user, upsert=True)
-            
+
             # Generate JWT token using the same logic as the backend
             jwt_secret = "music_quiz_bot_super_secret_key_2024"
             payload = {
@@ -184,11 +184,11 @@ class MusicQuizAPITester:
                 "iat": datetime.now(timezone.utc)
             }
             self.token = pyjwt.encode(payload, jwt_secret, algorithm="HS256")
-            
+
             print(f"✓ Created test user: {self.test_user_id}")
             print(f"✓ Generated JWT token")
             return True
-            
+
         except Exception as e:
             print(f"❌ Failed to create test user and token: {str(e)}")
             return False
@@ -211,7 +211,7 @@ class MusicQuizAPITester:
                     print(f"✓ Cleaned up guest user: {self.guest_user_id}")
                 except Exception as e:
                     print(f"⚠️  Failed to cleanup guest user: {str(e)}")
-        
+
         if self.mongo_client:
             self.mongo_client.close()
 
@@ -267,7 +267,7 @@ class MusicQuizAPITester:
         if not self.token:
             print("❌ No auth token available for quiz testing")
             return False
-            
+
         success, response = self.run_test(
             "Quiz Start - Genre Mode",
             "POST",
@@ -275,25 +275,25 @@ class MusicQuizAPITester:
             200,
             data={"mode": "genre", "difficulty": "medium"}
         )
-        
+
         if success:
             required_keys = ['session_id', 'questions', 'total_questions', 'difficulty', 'mode']
             missing_keys = [key for key in required_keys if key not in response]
-            
+
             if not missing_keys:
                 print(f"   ✓ Quiz start response has all required keys")
                 questions = response.get('questions', [])
                 if len(questions) > 0:
                     print(f"   ✓ Quiz contains {len(questions)} questions")
-                    
+
                     # Check first question structure
                     first_q = questions[0]
                     q_required_keys = ['track', 'question', 'options', 'mode']
                     q_missing_keys = [key for key in q_required_keys if key not in first_q]
-                    
+
                     if not q_missing_keys:
                         print(f"   ✓ Question structure is valid")
-                        
+
                         # Check track info
                         track = first_q.get('track', {})
                         if track.get('name') and track.get('album'):
@@ -323,16 +323,16 @@ class MusicQuizAPITester:
                 print(f"   ⚠️  level {lvl} returned {pts}, expected {expected}")
         return True
 
-                            
 
-                                
+
+
                         # Check if question looks AI-generated (not just generic)
                         question_text = first_q.get('question', '')
                         if len(question_text) > 20 and ('genre' in question_text.lower() or 'music' in question_text.lower()):
                             print(f"   ✓ AI-generated question looks valid")
                         else:
                             print(f"   ⚠️  Question might be fallback: {question_text[:50]}...")
-                            
+
                         return True
                     else:
                         print(f"   ⚠️  Question missing keys: {q_missing_keys}")
@@ -340,14 +340,14 @@ class MusicQuizAPITester:
                     print(f"   ⚠️  No questions returned")
             else:
                 print(f"   ⚠️  Response missing keys: {missing_keys}")
-                
+
         return success
 
     def test_quiz_start_artist_mode(self):
         """Test quiz start endpoint for artist mode"""
         if not self.token:
             return False
-            
+
         success, response = self.run_test(
             "Quiz Start - Artist Mode",
             "POST", 
@@ -355,7 +355,7 @@ class MusicQuizAPITester:
             200,
             data={"mode": "artist", "difficulty": "easy"}
         )
-        
+
         if success:
             questions = response.get('questions', [])
             if len(questions) > 0:
@@ -363,14 +363,14 @@ class MusicQuizAPITester:
                 return True
             else:
                 print(f"   ⚠️  No questions returned for artist mode")
-                
+
         return success
 
     def test_quiz_start_mood_mode(self):
         """Test quiz start endpoint for mood mode"""
         if not self.token:
             return False
-            
+
         success, response = self.run_test(
             "Quiz Start - Mood Mode (Happy)",
             "POST",
@@ -378,7 +378,7 @@ class MusicQuizAPITester:
             200,
             data={"mode": "mood", "mood": "happy", "difficulty": "hard"}
         )
-        
+
         if success:
             questions = response.get('questions', [])
             if len(questions) > 0:
@@ -386,28 +386,28 @@ class MusicQuizAPITester:
                 return True
             else:
                 print(f"   ⚠️  No questions returned for mood mode")
-                
+
         return success
 
     def test_auth_me_with_token(self):
         """Test /auth/me endpoint with valid token"""
         if not self.token:
             return False
-            
+
         success, response = self.run_test(
             "Auth Me - With Valid Token",
             "GET",
             "auth/me",
             200
         )
-        
+
         if success:
             if response.get('id') == self.test_user_id:
                 print(f"   ✓ Auth endpoint returns correct user data")
                 return True
             else:
                 print(f"   ⚠️  Unexpected user ID in response")
-                
+
         return success
 
     def test_protected_endpoint_without_auth(self):
@@ -415,17 +415,17 @@ class MusicQuizAPITester:
         # Temporarily remove token for this test
         original_token = self.token
         self.token = None
-        
+
         success, response = self.run_test(
             "Protected Endpoint Without Auth",
             "GET",
             "auth/me",
             401
         )
-        
+
         # Restore token
         self.token = original_token
-        
+
         if success:
             print(f"   ✓ Protected endpoint correctly returns 401")
         return success
@@ -433,10 +433,10 @@ class MusicQuizAPITester:
 def main():
     print("🎵 Music Quiz Bot API Testing")
     print("=" * 50)
-    
+
     # Setup
     tester = MusicQuizAPITester()
-    
+
     # Run basic tests first
     basic_tests = [
         tester.test_health_check,
@@ -447,7 +447,7 @@ def main():
         tester.test_leaderboard_includes_guest,
         tester.test_protected_endpoint_without_auth,
     ]
-    
+
     print("\n🔧 Running Basic API Tests...")
     for test in basic_tests:
         try:
@@ -455,7 +455,7 @@ def main():
         except Exception as e:
             print(f"❌ Test failed with exception: {str(e)}")
             tester.tests_run += 1
-    
+
     # Before creating a dedicated test user, try a quick quiz start with the guest token
     print(f"\n🔧 Verifying quiz start works for guest user")
     try:
@@ -469,12 +469,12 @@ def main():
     if not tester.setup_mongodb_connection():
         print("❌ Cannot proceed with quiz testing - MongoDB connection failed")
         return 1
-        
+
     if not tester.create_test_user_and_token():
         print("❌ Cannot proceed with quiz testing - Test user creation failed")
         tester.cleanup_test_user()
         return 1
-    
+
     # Run quiz-specific tests
     quiz_tests = [
         tester.test_auth_me_with_token,
@@ -482,7 +482,7 @@ def main():
         tester.test_quiz_start_artist_mode,
         tester.test_quiz_start_mood_mode,
     ]
-    
+
     print(f"\n🎯 Running Quiz Flow Tests...")
     for test in quiz_tests:
         try:
@@ -500,7 +500,7 @@ def main():
     print(f"   Tests run: {tester.tests_run}")
     print(f"   Tests passed: {tester.tests_passed}")
     print(f"   Success rate: {(tester.tests_passed/tester.tests_run*100):.1f}%")
-    
+
     if tester.tests_passed == tester.tests_run:
         print("🎉 All tests passed!")
         return 0
