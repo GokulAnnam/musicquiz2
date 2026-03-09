@@ -99,6 +99,7 @@ class QuizAnswerRequest(BaseModel):
     session_id: str
     question_index: int
     answer: str
+    used_hint: Optional[bool] = False
 
 class UserProfileUpdate(BaseModel):
     favorite_genres: Optional[List[str]] = None
@@ -605,6 +606,7 @@ async def start_quiz(req: QuizStartRequest, user=Depends(get_current_user)):
                 "question": q["question"],
                 "options": q["options"],
                 "mode": q["mode"],
+                "hint": q.get("hint", "Consider the historical and cultural context of this music tradition."),
                 # topic/metadata could also be included if desired
                 "topic": q.get("topic"),
                 # include level so client can display/hint if necessary
@@ -681,6 +683,11 @@ async def answer_question(req: QuizAnswerRequest, user=Depends(get_current_user)
                 qlevel = question.get("level", "easy")
                 mapping = {"easy": 10, "moderate": 15, "difficult": 20}
                 points = mapping.get(qlevel, 10)
+            
+            # Apply hint penalty (50% reduction, rounded up)
+            if req.used_hint:
+                import math
+                points = math.ceil(points / 2)
         else:
             points = 0
     else:
@@ -699,6 +706,7 @@ async def answer_question(req: QuizAnswerRequest, user=Depends(get_current_user)
         "user_answer": req.answer,
         "correct_answer": correct_answer,
         "is_correct": is_correct,
+        "used_hint": req.used_hint,
         "points": points,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }

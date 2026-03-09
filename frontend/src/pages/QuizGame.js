@@ -29,6 +29,7 @@ export default function QuizGame() {
   const [messages, setMessages] = useState([]);
   const [score, setScore] = useState(0);
   const [showHint, setShowHint] = useState(false);
+  const [showHintModal, setShowHintModal] = useState(false);
   const [answered, setAnswered] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
   const [timedActive, setTimedActive] = useState(false);
@@ -72,6 +73,7 @@ export default function QuizGame() {
       setScore(0);
       setMessages([]);
       setShowHint(false);
+      setShowHintModal(false);
       setAnswered(false);
 
       const questionsData = res.data.questions;
@@ -148,7 +150,8 @@ export default function QuizGame() {
       const res = await authAxios.post('/quiz/answer', {
         session_id: session.session_id,
         question_index: currentIndex,
-        answer
+        answer,
+        used_hint: showHint
       });
 
       const { is_correct, correct_answer, points, total_score, bot_response, fun_fact, topic, is_last_question, track_info } = res.data;
@@ -206,6 +209,14 @@ export default function QuizGame() {
       content: `Hint: ${q.hint || 'Listen carefully to the instruments and rhythm.'}`,
       isHint: true
     }]);
+  };
+
+  const handleHintClick = () => {
+    if (['educational', 'educationalquiz'].includes(mode)) {
+      setShowHintModal(true);
+    } else {
+      handleHint();
+    }
   };
 
   // Options selection phase (mood or educational settings)
@@ -483,7 +494,10 @@ export default function QuizGame() {
                       )}
 
                       {/* Options for question messages */}
-                      {msg.options && !answered && i === messages.length - 1 && (
+                      {msg.options && !answered && (
+                        (i === messages.length - 1) ||
+                        (i === messages.length - 2 && messages[messages.length - 1].isHint)
+                      ) && (
                         <div className="space-y-2 mt-3">
                           {msg.options.map((opt, oi) => (
                             <motion.button
@@ -502,7 +516,7 @@ export default function QuizGame() {
                           {/* Hint button */}
                           {!showHint && (
                             <button
-                              onClick={handleHint}
+                              onClick={handleHintClick}
                               className="flex items-center gap-2 text-xs text-slate-500 hover:text-yellow-400 transition-colors mt-2"
                               data-testid="hint-btn"
                             >
@@ -523,6 +537,36 @@ export default function QuizGame() {
           <div ref={chatEndRef} />
         </div>
       </div>
+
+      {/* Hint Confirmation Modal */}
+      {showHintModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-deep-ocean rounded-xl p-6 w-full max-w-sm text-center border border-white/10">
+            <h2 className="text-white text-xl mb-4 font-heading font-medium">Use a Hint?</h2>
+            <p className="text-slate-300 mb-6 text-sm leading-relaxed">
+              Using a hint will reduce the score for this question by 50%.<br/>
+              Do you want to continue?
+            </p>
+            <div className="flex justify-center gap-4">
+              <button
+                onClick={() => setShowHintModal(false)}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowHintModal(false);
+                  handleHint();
+                }}
+                className="px-4 py-2 bg-biolum-cyan text-deep-ocean font-bold rounded"
+              >
+                Show Hint
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
